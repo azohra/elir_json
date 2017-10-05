@@ -1,3 +1,4 @@
+--format ElirJsonFormatter 
 --format documentation
 --color
 --require spec_helper

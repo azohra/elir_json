@@ -1,86 +1,37 @@
 require 'rspec/core/formatters/base_formatter'
 require 'json'
 
-# RSpec::Support.require_rspec_core 'formatters/base_formatter'
-
 class ElirJsonFormatter < RSpec::Core::Formatters::BaseFormatter
-  RSpec::Core::Formatters.register self, :message, :dump_summary, :dump_profile, :stop, :seed, :close
+  RSpec::Core::Formatters.register self, :example_passed, :example_pending, :example_failed, :close 
 
   attr_reader :output_hash
 
   def initialize(output)
     super
-    @output_hash = {
-      version: RSpec::Core::Version::STRING
-    }
+    @output_hash = {}
+    @env_final = {}    
   end
 
-  def message(notification)
-    (@output_hash[:messages] ||= []) << notification.message
+  def example_passed(passed)
+    process_example(passed.example)
   end
 
-  def dump_summary(summary)
-    @output_hash[:summary] = {
-      duration: summary.duration,
-      example_count: summary.example_count,
-      failure_count: summary.failure_count,
-      pending_count: summary.pending_count,
-      errors_outside_of_examples_count: summary.errors_outside_of_examples_count
-    }
-    @output_hash[:summary_line] = summary.totals_line
+  def example_pending(pending)
+    process_example(pending.example)
   end
 
-  def stop(notification)
-    @output_hash[:examples] = notification.examples.map do |example|
-      format_example(example).tap do |hash|
-        e = example.exception
-        if e
-          hash[:exception] = {
-            class: e.class.name,
-            message: e.message,
-            backtrace: e.backtrace
-          }
-        end
-      end
-    end
-  end
-
-  def seed(notification)
-    return unless notification.seed_used?
-    @output_hash[:seed] = notification.seed
-  end
-
-  def close(_notification)
-    output.write @output_hash.to_json
-  end
-
-  def dump_profile(profile)
-    @output_hash[:profile] = {}
-    dump_profile_slowest_examples(profile)
-    dump_profile_slowest_example_groups(profile)
-  end
-
-  # @api private
-  def dump_profile_slowest_examples(profile)
-    @output_hash[:profile] = {}
-    @output_hash[:profile][:examples] = profile.slowest_examples.map do |example|
-      format_example(example).tap do |hash|
-        hash[:run_time] = example.execution_result.run_time
-      end
-    end
-    @output_hash[:profile][:slowest] = profile.slow_duration
-    @output_hash[:profile][:total] = profile.duration
-  end
-
-  # @api private
-  def dump_profile_slowest_example_groups(profile)
-    @output_hash[:profile] ||= {}
-    @output_hash[:profile][:groups] = profile.slowest_groups.map do |loc, hash|
-      hash.update(location: loc)
-    end
+  def example_failed(failure)
+    process_example(failure.example)
   end
 
   private
+
+  def process_example(example)
+    @output_hash = format_example(example)
+    output.write @output_hash.to_json
+    @output_hash = {}
+    @env_final   = {}
+  end
 
   def format_example(example)
     {
@@ -91,7 +42,16 @@ class ElirJsonFormatter < RSpec::Core::Formatters::BaseFormatter
       file_path: example.metadata[:file_path],
       line_number: example.metadata[:line_number],
       run_time: example.execution_result.run_time,
-      pending_message: example.execution_result.pending_message
+      pending_message: example.execution_result.pending_message,
+      env: format_envs(ENV['labels'])
     }
+  end
+
+  def format_envs(envs)
+    return unless ENV['labels']
+    envs.to_s.split(/\W+/).each do |k,v|
+      @env_final[k.downcase.to_sym] = ENV[k]
+    end
+    @env_final  
   end
 end
